@@ -30,13 +30,15 @@ async function main() {
 
   const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe123!";
   const turiPassword = process.env.SEED_TURI_PASSWORD ?? "ChangeMe123!";
+  const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
+  const turiPasswordHash = await bcrypt.hash(turiPassword, 10);
 
   await prisma.employee.upsert({
     where: { email: "admin@rigolettoprostudio.com" },
-    update: {},
+    update: { passwordHash: adminPasswordHash },
     create: {
       email: "admin@rigolettoprostudio.com",
-      passwordHash: await bcrypt.hash(adminPassword, 10),
+      passwordHash: adminPasswordHash,
       roleId: adminRole.id,
       fullName: "Owner",
       displayName: "Owner",
@@ -46,10 +48,10 @@ async function main() {
 
   await prisma.employee.upsert({
     where: { email: "turi@rigolettoprostudio.com" },
-    update: {},
+    update: { passwordHash: turiPasswordHash },
     create: {
       email: "turi@rigolettoprostudio.com",
-      passwordHash: await bcrypt.hash(turiPassword, 10),
+      passwordHash: turiPasswordHash,
       roleId: managerRole.id,
       fullName: "Turi",
       displayName: "Turi",
