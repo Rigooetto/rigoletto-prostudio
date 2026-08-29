@@ -13,3 +13,5 @@ services:
         value: https://app.rigolettoprostudio.com
       - key: NODE_ENV
         value: production
+      - key: TZ
+        value: America/Tijuana
