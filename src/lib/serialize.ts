@@ -1,4 +1,4 @@
-import type { Service, Employee, Lead, ProductionTier, RevenueBonusTier, Expense } from "@/generated/prisma/client";
+import type { Service, Employee, Lead, ProductionTier, RevenueBonusTier, Expense, Session } from "@/generated/prisma/client";
 
 // Prisma's Decimal is a class instance and cannot cross the Server -> Client
 // Component boundary. These helpers convert Decimal fields to plain numbers
@@ -117,6 +117,30 @@ export function toPlainRevenueBonusTier(tier: RevenueBonusTier): PlainRevenueBon
     effectiveFrom: tier.effectiveFrom,
     effectiveTo: tier.effectiveTo,
     createdAt: tier.createdAt,
+  };
+}
+
+// Narrow view for the calendar's client-rendered week/day grid — only what a
+// session block actually displays, not the full Prisma result (which also
+// carries Decimal fields and can't cross the Server -> Client boundary).
+export type PlainCalendarSession = Pick<Session, "id" | "startsAt" | "endsAt" | "studioRoom" | "paymentStatus"> & {
+  amount: number;
+  clientDisplayName: string;
+  serviceName: string;
+};
+
+export function toPlainCalendarSession(
+  session: Session & { client: { displayName: string }; service: { serviceName: string } }
+): PlainCalendarSession {
+  return {
+    id: session.id,
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    studioRoom: session.studioRoom,
+    paymentStatus: session.paymentStatus,
+    amount: Number(session.amountBase ?? session.amount),
+    clientDisplayName: session.client.displayName,
+    serviceName: session.service.serviceName,
   };
 }
 

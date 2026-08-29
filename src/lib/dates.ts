@@ -73,3 +73,30 @@ export function endOfMonthFor(date: Date) {
 export function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
+
+export function startOfDayFor(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export function endOfDayFor(date: Date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+export function endOfWeekFor(date: Date) {
+  return endOfDayFor(addDays(startOfWeekFor(date), 6));
+}
+
+export function addMinutes(date: Date, minutes: number) {
+  return new Date(date.getTime() + minutes * 60000);
+}
+
+// Rounds to the nearest multiple of `minutes` — used to snap a drag gesture
+// to a clean time (e.g. 15-minute increments) instead of an exact pixel.
+export function snapToInterval(date: Date, minutes: number) {
+  const ms = minutes * 60000;
+  return new Date(Math.round(date.getTime() / ms) * ms);
+}
