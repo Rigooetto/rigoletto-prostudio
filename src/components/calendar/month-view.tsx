@@ -34,7 +34,7 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
   const timed = sessions.filter((s) => !isMultiDaySession(s));
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <div className="grid grid-cols-7 gap-2">
         {DAY_LABELS.map((label) => (
           <div key={label} className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -42,38 +42,52 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
           </div>
         ))}
       </div>
-      {weeks.map((week) => {
-        const weekSpanning = spanning.filter((s) => week.some((day) => sessionOverlapsDay(s, day)));
-        return (
-          // One grid per week — the spanning banner (row 1) and the day
-          // cells (row 2) are direct children of the SAME grid instance, not
-          // two separate grid elements stacked via space-y. That's the only
-          // way to guarantee they share identical column tracks: two
-          // separately-laid-out grids, even with an identical template and
-          // gap, can round fractional column widths a fraction of a pixel
-          // differently depending on the browser, which is exactly what
-          // caused the banner to drift out of alignment with the cells.
-          <div key={week[0].toISOString()} className="grid grid-cols-7 gap-2">
-            <SpanningSessionBlocks days={week} sessions={weekSpanning} compact gridRow={1} />
-            {week.map((day, i) => {
-              const daySessions = timed.filter((s) => sessionOverlapsDay(s, day));
-              const inMonth = day.getMonth() === anchor.getMonth();
-              const dateParam = toDateParam(day);
-              return (
-                <div
-                  key={day.toISOString()}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(`/calendar?view=day&date=${dateParam}`)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") router.push(`/calendar?view=day&date=${dateParam}`);
-                  }}
-                  style={{ gridColumn: i + 1, gridRow: 2 }}
-                  className={cn(
-                    "min-h-24 cursor-pointer rounded-md border border-border p-2 text-xs transition-colors hover:border-primary/50",
-                    inMonth ? "bg-card" : "bg-background/50 text-muted-foreground"
-                  )}
-                >
+      {/*
+        One seamless bordered table, not gapped individual "cards" per day.
+        Google Calendar's own month view has no gap between days — a
+        multi-day spanning bar sits flush against the row of dates it
+        belongs to. With a gap (and a rounded border on each day cell
+        separately), the spanning bar has no box to visually sit "inside" —
+        it just floats in the gap between two rows of boxes, which is
+        exactly what looked wrong. border-t on each week groups its banner
+        with its own cells (divider from the PREVIOUS week only); border-r
+        divides columns without needing a gap.
+      */}
+      <div className="overflow-hidden rounded-md border border-border">
+        {weeks.map((week, weekIndex) => {
+          const weekSpanning = spanning.filter((s) => week.some((day) => sessionOverlapsDay(s, day)));
+          return (
+            // One grid per week — the spanning banner (row 1) and the day
+            // cells (row 2) are direct children of the SAME grid instance,
+            // so they share literally the same computed column tracks (two
+            // separate grid elements, even with an identical template, can
+            // round fractional column widths a fraction of a pixel
+            // differently across browsers).
+            <div
+              key={week[0].toISOString()}
+              className={cn("grid grid-cols-7", weekIndex > 0 && "border-t border-border")}
+            >
+              <SpanningSessionBlocks days={week} sessions={weekSpanning} compact gridRow={1} />
+              {week.map((day, i) => {
+                const daySessions = timed.filter((s) => sessionOverlapsDay(s, day));
+                const inMonth = day.getMonth() === anchor.getMonth();
+                const dateParam = toDateParam(day);
+                return (
+                  <div
+                    key={day.toISOString()}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/calendar?view=day&date=${dateParam}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") router.push(`/calendar?view=day&date=${dateParam}`);
+                    }}
+                    style={{ gridColumn: i + 1, gridRow: 2 }}
+                    className={cn(
+                      "min-h-24 cursor-pointer p-2 text-xs transition-colors hover:bg-accent/50",
+                      i < 6 && "border-r border-border",
+                      inMonth ? "bg-card" : "bg-background/50 text-muted-foreground"
+                    )}
+                  >
                   <div className="mb-1 flex items-center justify-between">
                     <span className="font-medium">{day.getDate()}</span>
                     <Link
@@ -112,6 +126,7 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
