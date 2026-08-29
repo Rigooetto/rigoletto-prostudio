@@ -33,7 +33,7 @@ export function WeekView({ days, sessions }: { days: Date[]; sessions: PlainCale
           );
         })}
       </div>
-      <AllDayRow days={days} sessions={spanning} gutterPx={GUTTER_WIDTH} gapClassName="gap-0" />
+      <AllDayRow days={days} sessions={spanning} gutterPx={GUTTER_WIDTH} />
       <TimeGrid days={days} sessions={timed} />
     </div>
   );
