@@ -1,10 +1,10 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { sessionOverlapsDay, isMultiDaySession, monthGridRange } from "./layout";
-import { SpanningSessionBlocks } from "./all-day-row";
 import { toDateParam } from "./params";
 import { addDays } from "@/lib/dates";
 import { formatTime } from "@/lib/format";
@@ -19,6 +19,15 @@ function chunkIntoWeeks(days: Date[]): Date[][] {
   return weeks;
 }
 
+function spanColumns(session: PlainCalendarSession, week: Date[]) {
+  const indices = week.reduce<number[]>((acc, day, i) => {
+    if (sessionOverlapsDay(session, day)) acc.push(i);
+    return acc;
+  }, []);
+  if (indices.length === 0) return null;
+  return { startCol: Math.min(...indices) + 1, endCol: Math.max(...indices) + 2, indices };
+}
+
 export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainCalendarSession[] }) {
   const router = useRouter();
   const { gridStart, gridEnd } = monthGridRange(anchor);
@@ -26,12 +35,12 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
   for (let d = new Date(gridStart); d <= gridEnd; d = addDays(d, 1)) days.push(d);
   const weeks = chunkIntoWeeks(days);
 
-  // Multi-day sessions render once per week-row as one connected block
-  // spanning every column they touch that week (mirroring the week view's
-  // all-day banner), instead of a separate pill duplicated into each day
-  // cell. Single-day sessions still list inside each day's own cell.
   const spanning = sessions.filter(isMultiDaySession);
   const timed = sessions.filter((s) => !isMultiDaySession(s));
+
+  function goToDay(dateParam: string) {
+    router.push(`/calendar?view=day&date=${dateParam}`);
+  }
 
   return (
     <div className="space-y-2">
@@ -43,52 +52,42 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
         ))}
       </div>
       {/*
-        One seamless bordered table, not gapped individual "cards" per day.
-        Google Calendar's own month view has no gap between days — a
-        multi-day spanning bar sits flush against the row of dates it
-        belongs to. With a gap (and a rounded border on each day cell
-        separately), the spanning bar has no box to visually sit "inside" —
-        it just floats in the gap between two rows of boxes, which is
-        exactly what looked wrong. border-t on each week groups its banner
-        with its own cells (divider from the PREVIOUS week only); border-r
-        divides columns without needing a gap.
+        Each week is one grid with three row bands, matching Google
+        Calendar's actual month view: (1) date numbers, (2) one row per
+        multi-day session touching this week — sitting right BELOW the date
+        numbers, not above them, so it reads as belonging to this week, not
+        the previous one — and (3) single-day session pills. All three bands
+        share the same seamless background/border-r per column (no grid gap)
+        so a day reads as one continuous cell despite being built from
+        several grid items stacked in different rows.
       */}
       <div className="overflow-hidden rounded-md border border-border">
         {weeks.map((week, weekIndex) => {
           const weekSpanning = spanning.filter((s) => week.some((day) => sessionOverlapsDay(s, day)));
+          const contentRow = 2 + weekSpanning.length;
+
           return (
-            // One grid per week — the spanning banner (row 1) and the day
-            // cells (row 2) are direct children of the SAME grid instance,
-            // so they share literally the same computed column tracks (two
-            // separate grid elements, even with an identical template, can
-            // round fractional column widths a fraction of a pixel
-            // differently across browsers).
             <div
               key={week[0].toISOString()}
               className={cn("grid grid-cols-7", weekIndex > 0 && "border-t border-border")}
             >
-              <SpanningSessionBlocks days={week} sessions={weekSpanning} compact gridRow={1} />
               {week.map((day, i) => {
-                const daySessions = timed.filter((s) => sessionOverlapsDay(s, day));
                 const inMonth = day.getMonth() === anchor.getMonth();
                 const dateParam = toDateParam(day);
                 return (
                   <div
-                    key={day.toISOString()}
+                    key={`hdr-${day.toISOString()}`}
                     role="button"
                     tabIndex={0}
-                    onClick={() => router.push(`/calendar?view=day&date=${dateParam}`)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") router.push(`/calendar?view=day&date=${dateParam}`);
-                    }}
-                    style={{ gridColumn: i + 1, gridRow: 2 }}
+                    onClick={() => goToDay(dateParam)}
+                    onKeyDown={(event) => event.key === "Enter" && goToDay(dateParam)}
+                    style={{ gridColumn: i + 1, gridRow: 1 }}
                     className={cn(
-                      "min-h-24 cursor-pointer p-2 text-xs transition-colors hover:bg-accent/50",
+                      "flex cursor-pointer items-center justify-between px-2 pt-1.5 pb-0.5 text-xs transition-colors hover:bg-accent/50",
                       i < 6 && "border-r border-border",
                       inMonth ? "bg-card" : "bg-background/50 text-muted-foreground"
                     )}
                   >
-                  <div className="mb-1 flex items-center justify-between">
                     <span className="font-medium">{day.getDate()}</span>
                     <Link
                       href={`/sessions/new?date=${dateParam}`}
@@ -99,7 +98,66 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
                       <Plus className="h-3 w-3" />
                     </Link>
                   </div>
-                  <div className="space-y-1">
+                );
+              })}
+
+              {weekSpanning.map((session, bannerIndex) => {
+                const cols = spanColumns(session, week);
+                if (!cols) return null;
+                const covered = new Set(cols.indices);
+                const row = 2 + bannerIndex;
+                return (
+                  <Fragment key={session.id}>
+                    <Link
+                      href={`/sessions/${session.id}`}
+                      onClick={(event) => event.stopPropagation()}
+                      style={{ gridColumn: `${cols.startCol} / ${cols.endCol}`, gridRow: row }}
+                      className="block truncate rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary hover:bg-primary/25"
+                    >
+                      {session.clientDisplayName} · {session.serviceName}
+                    </Link>
+                    {week.map((day, i) => {
+                      if (covered.has(i)) return null;
+                      const inMonth = day.getMonth() === anchor.getMonth();
+                      const dateParam = toDateParam(day);
+                      return (
+                        <div
+                          key={i}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => goToDay(dateParam)}
+                          onKeyDown={(event) => event.key === "Enter" && goToDay(dateParam)}
+                          style={{ gridColumn: i + 1, gridRow: row }}
+                          className={cn(
+                            "cursor-pointer px-2 transition-colors hover:bg-accent/50",
+                            i < 6 && "border-r border-border",
+                            inMonth ? "bg-card" : "bg-background/50"
+                          )}
+                        />
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+
+              {week.map((day, i) => {
+                const daySessions = timed.filter((s) => sessionOverlapsDay(s, day));
+                const inMonth = day.getMonth() === anchor.getMonth();
+                const dateParam = toDateParam(day);
+                return (
+                  <div
+                    key={`content-${day.toISOString()}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => goToDay(dateParam)}
+                    onKeyDown={(event) => event.key === "Enter" && goToDay(dateParam)}
+                    style={{ gridColumn: i + 1, gridRow: contentRow }}
+                    className={cn(
+                      "min-h-16 cursor-pointer space-y-1 px-2 pb-2 text-xs transition-colors hover:bg-accent/50",
+                      i < 6 && "border-r border-border",
+                      inMonth ? "bg-card" : "bg-background/50 text-muted-foreground"
+                    )}
+                  >
                     {daySessions.slice(0, 3).map((s) => (
                       <Link
                         key={s.id}
@@ -120,12 +178,11 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
                       </Link>
                     )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
