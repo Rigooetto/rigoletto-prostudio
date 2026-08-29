@@ -46,7 +46,7 @@ async function main() {
     },
   });
 
-  await prisma.employee.upsert({
+  const turi = await prisma.employee.upsert({
     where: { email: "turi@rigolettoprostudio.com" },
     update: { passwordHash: turiPasswordHash },
     create: {
@@ -60,6 +60,18 @@ async function main() {
       acquisitionCommissionPercent: 10,
     },
   });
+
+  // Employee.basePayWeekly/acquisitionCommissionPercent above are just a
+  // denormalized "current value" for display — the compensation engine
+  // (gather.ts) reads exclusively from this effective-dated history table,
+  // which normally only gets a row via Settings > Compensation Tiers.
+  // Without one, Turi's base pay always resolves to $0 no matter what.
+  const hasActiveTuriRate = await prisma.employeePayRate.findFirst({ where: { employeeId: turi.id, effectiveTo: null } });
+  if (!hasActiveTuriRate) {
+    await prisma.employeePayRate.create({
+      data: { employeeId: turi.id, basePayWeekly: 300, acquisitionCommissionPercent: 10, effectiveFrom: turi.createdAt },
+    });
+  }
 
   const leadSources: Array<{
     code: string;
@@ -153,8 +165,21 @@ async function main() {
 
   for (const service of services) {
     const existing = await prisma.service.findFirst({ where: { serviceName: service.serviceName } });
-    if (!existing) {
-      await prisma.service.create({ data: service });
+    const record = existing ?? (await prisma.service.create({ data: service }));
+
+    // Service.compensationValue above is just a denormalized "current value"
+    // for display — the compensation engine (gather.ts) reads FIXED_AMOUNT
+    // and PERCENT_REVENUE rates exclusively from this history table (not
+    // used by TIERED_PRODUCTION, which prices off ProductionTier instead).
+    // Without a row here, Mix/Master and revenue-percent variables always
+    // resolve to $0 no matter how much work gets delivered/paid.
+    if (record.compensationValue !== null && (service.compensationType === "FIXED_AMOUNT" || service.compensationType === "PERCENT_REVENUE")) {
+      const hasActiveRate = await prisma.serviceCompensationRate.findFirst({ where: { serviceId: record.id, effectiveTo: null } });
+      if (!hasActiveRate) {
+        await prisma.serviceCompensationRate.create({
+          data: { serviceId: record.id, compensationValue: record.compensationValue, effectiveFrom: record.createdAt },
+        });
+      }
     }
   }
 
