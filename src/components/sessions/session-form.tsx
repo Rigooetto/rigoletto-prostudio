@@ -222,20 +222,26 @@ export function SessionForm({
           </div>
           {projectMode === "existing" && (
             <>
-              <Select name="projectId" value={projectId} onValueChange={(value) => setProjectId(value ?? "")}>
-                <SelectTrigger id="projectId" className="w-full">
-                  <SelectValue>
-                    {(value: string | null) => (value && visibleProjects.find((p) => p.id === value)?.title) || "Select a project"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {visibleProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {!clientId ? (
+                <p className="text-xs text-muted-foreground">Select a client above to see their existing projects.</p>
+              ) : visibleProjects.length === 0 ? (
+                <p className="text-xs text-muted-foreground">This client has no existing projects yet — use + New instead.</p>
+              ) : (
+                <Select name="projectId" value={projectId} onValueChange={(value) => setProjectId(value ?? "")}>
+                  <SelectTrigger id="projectId" className="w-full">
+                    <SelectValue>
+                      {(value: string | null) => (value && visibleProjects.find((p) => p.id === value)?.title) || "Select a project"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleProjects.map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               {state?.fieldErrors?.projectId && (
                 <p className="text-xs text-destructive">{state.fieldErrors.projectId[0]}</p>
               )}
