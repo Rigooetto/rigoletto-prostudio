@@ -5,6 +5,15 @@ import bcrypt from "bcryptjs";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
+// The bootstrap rate for a brand-new environment represents "this rate has
+// always been in effect," not "starting today" — using today's date would
+// exclude every already-elapsed payroll Monday/delivery/payment earlier in
+// the current period from resolving to any rate at all (see gather.ts's
+// effective-dated lookups). Any *real* future rate change still goes
+// through Settings > Compensation Tiers, which correctly stamps effectiveFrom
+// as now.
+const SEED_RATE_ANCHOR = new Date("2020-01-01T00:00:00Z");
+
 async function main() {
   const adminRole = await prisma.role.upsert({
     where: { code: "ADMIN" },
@@ -69,7 +78,7 @@ async function main() {
   const hasActiveTuriRate = await prisma.employeePayRate.findFirst({ where: { employeeId: turi.id, effectiveTo: null } });
   if (!hasActiveTuriRate) {
     await prisma.employeePayRate.create({
-      data: { employeeId: turi.id, basePayWeekly: 300, acquisitionCommissionPercent: 10, effectiveFrom: turi.createdAt },
+      data: { employeeId: turi.id, basePayWeekly: 300, acquisitionCommissionPercent: 10, effectiveFrom: SEED_RATE_ANCHOR },
     });
   }
 
@@ -177,7 +186,7 @@ async function main() {
       const hasActiveRate = await prisma.serviceCompensationRate.findFirst({ where: { serviceId: record.id, effectiveTo: null } });
       if (!hasActiveRate) {
         await prisma.serviceCompensationRate.create({
-          data: { serviceId: record.id, compensationValue: record.compensationValue, effectiveFrom: record.createdAt },
+          data: { serviceId: record.id, compensationValue: record.compensationValue, effectiveFrom: SEED_RATE_ANCHOR },
         });
       }
     }
