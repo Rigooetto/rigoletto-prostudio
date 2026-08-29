@@ -3,7 +3,8 @@ import { toPlainCalendarSession } from "@/lib/serialize";
 import { CalendarHeader, type CalendarView } from "@/components/calendar/calendar-header";
 import { WeekView } from "@/components/calendar/week-view";
 import { DayView } from "@/components/calendar/day-view";
-import { MonthView, monthGridRange } from "@/components/calendar/month-view";
+import { MonthView } from "@/components/calendar/month-view";
+import { monthGridRange } from "@/components/calendar/layout";
 import { parseDateParam } from "@/components/calendar/params";
 import { addDays, startOfWeekFor, endOfWeekFor, startOfDayFor, endOfDayFor } from "@/lib/dates";
 

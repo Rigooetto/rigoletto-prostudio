@@ -1,4 +1,4 @@
-import { startOfDayFor, endOfDayFor, isSameDay } from "@/lib/dates";
+import { startOfDayFor, endOfDayFor, isSameDay, addDays, startOfWeekFor, startOfMonthFor, endOfMonthFor } from "@/lib/dates";
 
 // Pure time-grid math — no "use client", no DB access. Kept framework-free
 // so the trickiest piece (lane assignment for overlapping sessions) is
@@ -107,6 +107,17 @@ export function sessionOverlapsDay(session: { startsAt: Date; endsAt: Date }, da
 // time-positioned block in a single day's hourly column.
 export function isMultiDaySession(session: { startsAt: Date; endsAt: Date }): boolean {
   return !isSameDay(session.startsAt, session.endsAt);
+}
+
+// The visible month grid pads the month out to full weeks (Monday-start), so
+// the caller must fetch sessions across this same range, not just the month
+// itself, or the leading/trailing days from adjacent months look empty.
+export function monthGridRange(anchor: Date) {
+  const monthStart = startOfMonthFor(anchor);
+  const monthEnd = endOfMonthFor(anchor);
+  const gridStart = startOfWeekFor(monthStart);
+  const gridEnd = addDays(startOfWeekFor(monthEnd), 6);
+  return { gridStart, gridEnd };
 }
 
 export const HOURS = Array.from({ length: 24 }, (_, h) => h);

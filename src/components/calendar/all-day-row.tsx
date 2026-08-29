@@ -11,10 +11,12 @@ export function AllDayRow({
   days,
   sessions,
   gutterPx = 0,
+  compact = false,
 }: {
   days: Date[];
   sessions: PlainCalendarSession[];
   gutterPx?: number;
+  compact?: boolean;
 }) {
   if (sessions.length === 0) return null;
   const columnOffset = gutterPx > 0 ? 1 : 0;
@@ -34,6 +36,21 @@ export function AllDayRow({
         if (indices.length === 0) return null;
         const startCol = Math.min(...indices) + 1 + columnOffset;
         const endCol = Math.max(...indices) + 2 + columnOffset;
+
+        if (compact) {
+          return (
+            <Link
+              key={session.id}
+              href={`/sessions/${session.id}`}
+              onClick={(event) => event.stopPropagation()}
+              style={{ gridColumn: `${startCol} / ${endCol}` }}
+              className="block truncate rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary hover:bg-primary/25"
+            >
+              {session.clientDisplayName} · {session.serviceName}
+            </Link>
+          );
+        }
+
         return (
           <Link
             key={session.id}
