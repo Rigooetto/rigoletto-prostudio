@@ -1,29 +1,38 @@
 import Link from "next/link";
 import { sessionOverlapsDay } from "./layout";
 import { formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { PlainCalendarSession } from "@/lib/serialize";
 
 // Multi-day sessions render as one connected block spanning every column
 // they touch, instead of being duplicated into each day's hourly grid.
 // `gutterPx` reserves a leading empty column matching TimeGrid's hour-axis
 // gutter, so this row's day columns line up with the grid underneath it.
+//
+// `gapClassName` MUST match the `gap-*` class of whatever sibling grid this
+// row is meant to align with (the day cells below it, in month view; the
+// header row and hour grid, in week/day view) — two same-template grids
+// with different gap values end up with subtly different column widths,
+// which compounds across 7 columns into a visibly misaligned bar.
 export function AllDayRow({
   days,
   sessions,
   gutterPx = 0,
   compact = false,
+  gapClassName = "gap-1",
 }: {
   days: Date[];
   sessions: PlainCalendarSession[];
   gutterPx?: number;
   compact?: boolean;
+  gapClassName?: string;
 }) {
   if (sessions.length === 0) return null;
   const columnOffset = gutterPx > 0 ? 1 : 0;
 
   return (
     <div
-      className="grid gap-1"
+      className={cn("grid", gapClassName)}
       style={{
         gridTemplateColumns: gutterPx > 0 ? `${gutterPx}px repeat(${days.length}, minmax(0, 1fr))` : `repeat(${days.length}, minmax(0, 1fr))`,
       }}

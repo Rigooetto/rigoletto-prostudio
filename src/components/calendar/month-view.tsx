@@ -46,7 +46,7 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
         const weekSpanning = spanning.filter((s) => week.some((day) => sessionOverlapsDay(s, day)));
         return (
           <div key={week[0].toISOString()} className="space-y-1">
-            <AllDayRow days={week} sessions={weekSpanning} compact />
+            <AllDayRow days={week} sessions={weekSpanning} compact gapClassName="gap-2" />
             <div className="grid grid-cols-7 gap-2">
               {week.map((day) => {
                 const daySessions = timed.filter((s) => sessionOverlapsDay(s, day));
