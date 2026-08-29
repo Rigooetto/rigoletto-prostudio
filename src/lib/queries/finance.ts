@@ -2,9 +2,12 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { startOfMonth, startOfYear } from "@/lib/dates";
 
+// invoiceId: null excludes sessions billed through an Invoice instead of
+// paid on the spot — that revenue is counted once, via invoicePaymentsSince,
+// not again here off the session's own (usually $0) amount.
 async function sessionRevenueSince(since: Date) {
   const result = await prisma.session.aggregate({
-    where: { paymentStatus: "PAID", startsAt: { gte: since } },
+    where: { paymentStatus: "PAID", invoiceId: null, startsAt: { gte: since } },
     _sum: { amountBase: true },
   });
   return Number(result._sum.amountBase ?? 0);

@@ -12,10 +12,14 @@ export async function getDailyStudioHours() {
   return goal ? Number(goal.amount) : 8;
 }
 
+// invoiceId: null excludes sessions billed through an Invoice instead of
+// paid on the spot — that revenue is counted once, via invoicePaymentsSince,
+// not again here off the session's own (usually $0) amount.
 async function paidRevenueSince(since: Date, until?: Date) {
   const result = await prisma.session.aggregate({
     where: {
       paymentStatus: "PAID",
+      invoiceId: null,
       startsAt: until ? { gte: since, lte: until } : { gte: since },
     },
     _sum: { amountBase: true },
@@ -23,14 +27,40 @@ async function paidRevenueSince(since: Date, until?: Date) {
   return Number(result._sum.amountBase ?? 0);
 }
 
+async function invoicePaymentsSince(since: Date, until?: Date) {
+  const result = await prisma.payment.aggregate({
+    where: { paidAt: until ? { gte: since, lte: until } : { gte: since } },
+    _sum: { amountBase: true },
+  });
+  return Number(result._sum.amountBase ?? 0);
+}
+
 export async function getRevenueStats() {
-  const [today, week, month, ytd] = await Promise.all([
+  const [
+    todaySessions,
+    weekSessions,
+    monthSessions,
+    ytdSessions,
+    todayInvoices,
+    weekInvoices,
+    monthInvoices,
+    ytdInvoices,
+  ] = await Promise.all([
     paidRevenueSince(startOfToday(), endOfToday()),
     paidRevenueSince(startOfWeek()),
     paidRevenueSince(startOfMonth()),
     paidRevenueSince(startOfYear()),
+    invoicePaymentsSince(startOfToday(), endOfToday()),
+    invoicePaymentsSince(startOfWeek()),
+    invoicePaymentsSince(startOfMonth()),
+    invoicePaymentsSince(startOfYear()),
   ]);
-  return { today, week, month, ytd };
+  return {
+    today: todaySessions + todayInvoices,
+    week: weekSessions + weekInvoices,
+    month: monthSessions + monthInvoices,
+    ytd: ytdSessions + ytdInvoices,
+  };
 }
 
 export async function getGoals() {
@@ -102,21 +132,23 @@ export async function getUpcomingSessions(days = 14) {
 export async function getWeekScorecard() {
   const weekStart = startOfWeek();
   const weekEnd = endOfWeek();
-  const [sessions, dailyStudioHours] = await Promise.all([
+  const [sessions, dailyStudioHours, invoiceRevenue] = await Promise.all([
     prisma.session.findMany({
       // Overlap, not just startsAt >= weekStart: catches sessions still running
       // into this week and excludes sessions that only start in a future week.
       where: { startsAt: { lte: weekEnd }, endsAt: { gte: weekStart } },
-      select: { startsAt: true, endsAt: true, amountBase: true, paymentStatus: true },
+      select: { startsAt: true, endsAt: true, amountBase: true, paymentStatus: true, invoiceId: true },
     }),
     getDailyStudioHours(),
+    invoicePaymentsSince(weekStart, weekEnd),
   ]);
 
   const billableHours = calculateBillableHours(sessions, dailyStudioHours, weekStart, weekEnd);
 
-  const revenue = sessions
-    .filter((s) => s.paymentStatus === "PAID")
-    .reduce((sum, s) => sum + Number(s.amountBase ?? 0), 0);
+  const revenue =
+    sessions
+      .filter((s) => s.paymentStatus === "PAID" && !s.invoiceId)
+      .reduce((sum, s) => sum + Number(s.amountBase ?? 0), 0) + invoiceRevenue;
 
   const projectsDelivered = await prisma.project.count({
     where: { finalDeliveredAt: { gte: weekStart } },
