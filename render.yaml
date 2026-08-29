@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: rigoletto-prostudio
+    env: node
+    buildCommand: npm ci && npm run build
+    startCommand: next start -p $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: AUTH_URL
+        value: https://app.rigolettoprostudio.com
+      - key: NODE_ENV
+        value: production

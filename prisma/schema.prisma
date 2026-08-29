@@ -1,0 +1,887 @@
+// Rigoletto ProStudio — Phase 1 (Foundation) schema
+// See /docs or the project plan for the full multi-phase data model.
+// Config-driven concepts (Service pricing/comp, LeadSource commission eligibility,
+// Goal thresholds) are rows in tables, never hardcoded — per business requirement.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────
+
+enum RoleCode {
+  ADMIN
+  STUDIO_MANAGER
+}
+
+enum BillingType {
+  PER_SONG
+  PER_HOUR
+  PER_DAY
+  FIXED_PROJECT
+  CUSTOM
+}
+
+enum CompensationType {
+  NONE
+  FIXED_AMOUNT
+  PERCENT_REVENUE
+  TIERED_PRODUCTION
+  CUSTOM
+}
+
+enum ProjectStatus {
+  LEAD
+  QUOTED
+  BOOKED
+  RECORDING
+  EDITING
+  MIXING
+  MASTERING
+  CLIENT_REVIEW
+  REVISION
+  READY_TO_DELIVER
+  DELIVERED
+  PAID
+  CANCELLED
+  ON_HOLD
+}
+
+enum TrackStatus {
+  PENDING
+  RECORDING
+  RECORDED
+  EDITING
+  EDITED
+  MIXING
+  MIXED
+  MASTERING
+  MASTERED
+  DELIVERED
+  REVISION_REQUESTED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+enum WhatsappMessageStatus {
+  NOT_SENT
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum WhatsappMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  QUOTED
+  FOLLOW_UP
+  BOOKED
+  WON
+  LOST
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+enum CompensationPeriodStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+enum NotificationType {
+  OVERDUE_PROJECT
+  LEAD_FOLLOWUP
+  UNSOLD_HOURS
+  REVENUE_BONUS
+  UNPAID_INVOICE
+  GOAL_REACHED
+  OTHER
+}
+
+enum ExpenseCategory {
+  PAYROLL
+  ADVERTISING
+  ELECTRICITY
+  WATER
+  INTERNET
+  RENT
+  EQUIPMENT
+  MAINTENANCE
+  SOFTWARE
+  CONTRACTORS
+  SUPPLIES
+  OTHER
+}
+
+// ─── Roles & Employees ──────────────────────────────────────────────────
+
+model Role {
+  id                       String   @id @default(uuid())
+  code                     RoleCode @unique
+  label                    String
+  description              String?
+  // Drives future Owner-only gating on net-profit / confidential financial data
+  // (Phase 3/4 tables). Not consumed by any Phase 1 query yet.
+  isConfidentialFinancials Boolean  @default(false) @map("is_confidential_financials")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  employees Employee[]
+
+  @@map("roles")
+}
+
+model Employee {
+  id                           String    @id @default(uuid())
+  email                        String    @unique
+  passwordHash                 String    @map("password_hash")
+  roleId                       String    @map("role_id")
+  fullName                     String    @map("full_name")
+  displayName                  String?   @map("display_name")
+  phone                        String?
+  active                       Boolean   @default(true)
+  hireDate                     DateTime? @map("hire_date") @db.Date
+  // Turi's $300/wk lives as data, not code — Phase 4 reads this.
+  basePayWeekly                Decimal?  @map("base_pay_weekly") @db.Decimal(12, 2)
+  // % of a personally-originated new client's first order paid as commission.
+  acquisitionCommissionPercent Decimal?  @default(10) @map("acquisition_commission_percent") @db.Decimal(5, 2)
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  originatedClients           Client[]             @relation("ClientOriginator")
+  leadProjects                Project[]            @relation("ProjectLeadEngineer")
+  createdSessions             Session[]            @relation("SessionCreatedBy")
+  sessionEngineerRows         SessionEngineer[]
+  ownedLeads                  Lead[]               @relation("LeadOwner")
+  assignedTasks               Task[]               @relation("TaskAssignee")
+  createdTasks                Task[]               @relation("TaskCreatedBy")
+  createdInvoices             Invoice[]            @relation("InvoiceCreatedBy")
+  recordedPayments            Payment[]            @relation("PaymentRecordedBy")
+  recordedSessionPayments     SessionPayment[]     @relation("SessionPaymentRecordedBy")
+  createdExpenses             Expense[]            @relation("ExpenseCreatedBy")
+  compensationPeriods         CompensationPeriod[] @relation("CompensationPeriodEmployee")
+  approvedCompensationPeriods CompensationPeriod[] @relation("CompensationPeriodApprover")
+  auditLogs                   AuditLog[]           @relation("AuditLogEmployee")
+  notifications               Notification[]       @relation("NotificationRecipient")
+  closedMonths                MonthlyClose[]       @relation("MonthlyCloseClosedBy")
+  payRateHistory              EmployeePayRate[]
+
+  @@index([roleId])
+  @@map("employees")
+}
+
+// ─── Lead Sources ───────────────────────────────────────────────────────
+
+model LeadSource {
+  id                               String   @id @default(uuid())
+  code                             String   @unique
+  label                            String
+  // true = paid/organic marketing channel (Meta Ads, Instagram, etc.)
+  isMarketingChannel               Boolean  @default(false) @map("is_marketing_channel")
+  // Admin-editable; consumed by Phase 4's Customer Acquisition Commission calc
+  eligibleForAcquisitionCommission Boolean  @default(false) @map("eligible_for_acquisition_commission")
+  active                           Boolean  @default(true)
+  sortOrder                        Int      @default(0) @map("sort_order")
+  createdAt                        DateTime @default(now()) @map("created_at")
+
+  clients Client[]
+  leads   Lead[]
+
+  @@map("lead_sources")
+}
+
+// ─── Clients & Artists ──────────────────────────────────────────────────
+
+model Client {
+  id                     String    @id @default(uuid())
+  displayName            String    @map("display_name")
+  contactName            String?   @map("contact_name")
+  phone                  String?
+  // Normalized E.164 form of `phone`, kept in sync at every write site —
+  // lets the WhatsApp webhook match an inbound sender to a Client by exact
+  // lookup instead of re-normalizing every client's phone on every message.
+  phoneE164              String?   @map("phone_e164")
+  email                  String?
+  instagramHandle        String?   @map("instagram_handle")
+  leadSourceId           String?   @map("lead_source_id")
+  originatedByEmployeeId String?   @map("originated_by_employee_id")
+  firstVisitAt           DateTime? @map("first_visit_at") @db.Date
+  lastVisitAt            DateTime? @map("last_visit_at") @db.Date
+  notes                  String?
+  active                 Boolean   @default(true)
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  leadSource           LeadSource? @relation(fields: [leadSourceId], references: [id])
+  originatedByEmployee Employee?   @relation("ClientOriginator", fields: [originatedByEmployeeId], references: [id])
+
+  artists           Artist[]
+  projects          Project[]
+  sessions          Session[]
+  tasks             Task[]
+  quotes            Quote[]
+  invoices          Invoice[]
+  convertedFromLead Lead?
+  whatsappMessages  WhatsappMessage[]
+
+  @@index([leadSourceId])
+  @@index([phoneE164])
+  @@map("clients")
+}
+
+model Artist {
+  id        String   @id @default(uuid())
+  clientId  String   @map("client_id")
+  stageName String   @map("stage_name")
+  genre     String?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  client   Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  projects Project[]
+  sessions Session[]
+
+  @@index([clientId])
+  @@map("artists")
+}
+
+// ─── Services (configurable, not hardcoded) ─────────────────────────────
+
+model Service {
+  id                     String           @id @default(uuid())
+  serviceName            String           @map("service_name")
+  serviceCategory        String?          @map("service_category")
+  billingType            BillingType      @map("billing_type")
+  defaultPrice           Decimal          @map("default_price") @db.Decimal(12, 2)
+  currency               String           @default("USD") @db.Char(3)
+  defaultDurationMinutes Int?             @map("default_duration_minutes")
+  // Interpreted by Phase 4's compensation engine; NOT the tiered-production
+  // schedule itself (that lives in Phase 4's compensation_rules table keyed by service).
+  compensationType       CompensationType @default(NONE) @map("compensation_type")
+  compensationValue      Decimal?         @map("compensation_value") @db.Decimal(12, 2)
+  active                 Boolean          @default(true)
+  sortOrder              Int              @default(0) @map("sort_order")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  projects                Project[]
+  sessions                Session[]
+  quotes                  Quote[]
+  leads                   Lead[]
+  compensationRateHistory ServiceCompensationRate[]
+
+  @@map("services")
+}
+
+// ─── Projects & Tracks ───────────────────────────────────────────────────
+
+model Project {
+  id               String        @id @default(uuid())
+  clientId         String        @map("client_id")
+  artistId         String?       @map("artist_id")
+  primaryServiceId String        @map("primary_service_id")
+  leadEngineerId   String?       @map("lead_engineer_id")
+  title            String
+  status           ProjectStatus @default(LEAD)
+  trackCount       Int           @default(1) @map("track_count")
+  quotedPrice      Decimal?      @map("quoted_price") @db.Decimal(12, 2)
+  currency         String        @default("USD") @db.Char(3)
+  exchangeRate     Decimal       @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  quotedPriceBase  Decimal?      @map("quoted_price_base") @db.Decimal(12, 2)
+
+  // Full lifecycle timestamps for productivity/turnaround metrics
+  scheduledRecordingAt DateTime? @map("scheduled_recording_at")
+  recordingStartedAt   DateTime? @map("recording_started_at")
+  recordingCompletedAt DateTime? @map("recording_completed_at")
+  editingStartedAt     DateTime? @map("editing_started_at")
+  editingCompletedAt   DateTime? @map("editing_completed_at")
+  mixStartedAt         DateTime? @map("mix_started_at")
+  mixCompletedAt       DateTime? @map("mix_completed_at")
+  masterStartedAt      DateTime? @map("master_started_at")
+  masterCompletedAt    DateTime? @map("master_completed_at")
+  firstDeliveredAt     DateTime? @map("first_delivered_at")
+  revisionRequestedAt  DateTime? @map("revision_requested_at")
+  revisionDeliveredAt  DateTime? @map("revision_delivered_at")
+  finalDeliveredAt     DateTime? @map("final_delivered_at")
+
+  // Phase 3 invoice link — still a placeholder until Phase 3 lands below.
+  invoiceId String? @map("invoice_id")
+  quoteId   String? @unique @map("quote_id")
+
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client         Client    @relation(fields: [clientId], references: [id])
+  artist         Artist?   @relation(fields: [artistId], references: [id])
+  primaryService Service   @relation(fields: [primaryServiceId], references: [id])
+  leadEngineer   Employee? @relation("ProjectLeadEngineer", fields: [leadEngineerId], references: [id])
+  quote          Quote?    @relation(fields: [quoteId], references: [id])
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  tracks   ProjectTrack[]
+  sessions Session[]
+  tasks    Task[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([leadEngineerId])
+  @@map("projects")
+}
+
+model ProjectTrack {
+  id          String      @id @default(uuid())
+  projectId   String      @map("project_id")
+  trackNumber Int         @map("track_number")
+  trackTitle  String?     @map("track_title")
+  status      TrackStatus @default(PENDING)
+  editedAt    DateTime?   @map("edited_at")
+  mixedAt     DateTime?   @map("mixed_at")
+  masteredAt  DateTime?   @map("mastered_at")
+  // Phase 4's tiered production bonus counts DELIVERED tracks off this field.
+  deliveredAt DateTime?   @map("delivered_at")
+  notes       String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, trackNumber])
+  @@map("project_tracks")
+}
+
+// ─── Sessions ─────────────────────────────────────────────────────────
+
+model Session {
+  id            String        @id @default(uuid())
+  projectId     String?       @map("project_id")
+  clientId      String        @map("client_id")
+  artistId      String?       @map("artist_id")
+  serviceId     String        @map("service_id")
+  studioRoom    String        @default("Main Room") @map("studio_room")
+  startsAt      DateTime      @map("starts_at")
+  endsAt        DateTime      @map("ends_at")
+  amount        Decimal       @default(0) @db.Decimal(12, 2)
+  currency      String        @default("USD") @db.Char(3)
+  exchangeRate  Decimal       @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  amountBase    Decimal?      @map("amount_base") @db.Decimal(12, 2)
+  // Derived from the sum of `payments` below (see recomputeSessionPaymentStatus
+  // in actions/sessions.ts) — never set directly, so it always reflects real
+  // dated payment records instead of a manually-flipped status.
+  paymentStatus PaymentStatus @default(UNPAID) @map("payment_status")
+
+  // Optional formal invoice for larger engagements — most day-to-day sessions
+  // are paid on the spot and tracked via paymentStatus above, not invoiced.
+  invoiceId String? @map("invoice_id")
+
+  // Booking confirmation sent via Twilio's WhatsApp API. SKIPPED covers both
+  // "Twilio isn't configured" and "no valid phone number" — expected/benign
+  // cases, distinct from FAILED (a real send attempt that errored).
+  whatsappStatus WhatsappMessageStatus @default(NOT_SENT) @map("whatsapp_status")
+  whatsappSentAt DateTime?             @map("whatsapp_sent_at")
+  whatsappError  String?               @map("whatsapp_error")
+
+  notes               String?
+  createdByEmployeeId String?  @map("created_by_employee_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  project           Project?  @relation(fields: [projectId], references: [id])
+  client            Client    @relation(fields: [clientId], references: [id])
+  artist            Artist?   @relation(fields: [artistId], references: [id])
+  service           Service   @relation(fields: [serviceId], references: [id])
+  invoice           Invoice?  @relation(fields: [invoiceId], references: [id])
+  createdByEmployee Employee? @relation("SessionCreatedBy", fields: [createdByEmployeeId], references: [id])
+
+  engineers        SessionEngineer[]
+  payments         SessionPayment[]
+  whatsappMessages WhatsappMessage[]
+
+  @@index([startsAt])
+  @@index([projectId])
+  @@index([clientId])
+  @@map("sessions")
+}
+
+// A general client-conversation log — separate from Session's own
+// whatsappStatus/whatsappSentAt/whatsappError (which just track whether
+// *that session's* booking confirmation went out). This table holds every
+// real WhatsApp message, inbound or outbound, tied to a Client so the
+// client detail page can show the actual conversation history. Only real
+// messages get a row here — a SKIPPED/FAILED send attempt has no genuine
+// Meta message behind it and stays visible only via the Session fields.
+model WhatsappMessage {
+  id          String                   @id @default(uuid())
+  clientId    String                   @map("client_id")
+  sessionId   String?                  @map("session_id")
+  direction   WhatsappMessageDirection
+  body        String
+  // Meta's own message id (e.g. "wamid...") — unique so a redelivered
+  // webhook event (Meta retries aggressively) is a no-op, not a duplicate.
+  waMessageId String                   @unique @map("wa_message_id")
+  status      WhatsappMessageStatus    @default(NOT_SENT)
+  createdAt   DateTime                 @default(now()) @map("created_at")
+
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, createdAt])
+  @@map("whatsapp_messages")
+}
+
+// Dated, itemized payments against a Session — mirrors Payment/Invoice.
+// A deposit collected in one month and a balance collected the next each
+// get their own row with their own paidAt, so compensation revenue
+// recognition (gather.ts) splits correctly across periods instead of
+// attributing the whole session amount to whichever month it happened to
+// be re-generated in. A refund is recorded as a negative-amount row dated
+// when the money actually went back, so it reduces revenue in the period
+// it happened in rather than the period the original payment landed in.
+model SessionPayment {
+  id                   String        @id @default(uuid())
+  sessionId            String        @map("session_id")
+  amount               Decimal       @db.Decimal(12, 2)
+  currency             String        @default("USD") @db.Char(3)
+  exchangeRate         Decimal       @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  amountBase           Decimal?      @map("amount_base") @db.Decimal(12, 2)
+  method               PaymentMethod @default(CASH)
+  paidAt               DateTime      @default(now()) @map("paid_at")
+  notes                String?
+  recordedByEmployeeId String?       @map("recorded_by_employee_id")
+  createdAt            DateTime      @default(now()) @map("created_at")
+
+  session            Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  recordedByEmployee Employee? @relation("SessionPaymentRecordedBy", fields: [recordedByEmployeeId], references: [id])
+
+  @@index([sessionId])
+  @@index([paidAt])
+  @@map("session_payments")
+}
+
+model SessionEngineer {
+  sessionId     String  @map("session_id")
+  employeeId    String  @map("employee_id")
+  roleOnSession String? @map("role_on_session")
+
+  session  Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@id([sessionId, employeeId])
+  @@map("session_engineers")
+}
+
+// ─── CRM: Leads, Quotes, Tasks (Phase 2) ────────────────────────────────
+
+model Lead {
+  id                  String    @id @default(uuid())
+  name                String
+  artistName          String?   @map("artist_name")
+  phone               String?
+  email               String?
+  instagramHandle     String?   @map("instagram_handle")
+  leadSourceId        String?   @map("lead_source_id")
+  interestedServiceId String?   @map("interested_service_id")
+  stage               LeadStage @default(NEW)
+  estimatedValue      Decimal?  @map("estimated_value") @db.Decimal(12, 2)
+  // 0-100, used for weighted pipeline (estimatedValue * probability / 100)
+  probability         Int       @default(50)
+  nextFollowUpAt      DateTime? @map("next_follow_up_at")
+  firstContactedAt    DateTime? @map("first_contacted_at")
+  lastContactedAt     DateTime? @map("last_contacted_at")
+  notes               String?
+  ownerEmployeeId     String?   @map("owner_employee_id")
+  // Set when stage -> WON and the lead becomes a real Client.
+  convertedClientId   String?   @unique @map("converted_client_id")
+  campaignId          String?   @map("campaign_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  leadSource        LeadSource? @relation(fields: [leadSourceId], references: [id])
+  interestedService Service?    @relation(fields: [interestedServiceId], references: [id])
+  ownerEmployee     Employee?   @relation("LeadOwner", fields: [ownerEmployeeId], references: [id])
+  convertedClient   Client?     @relation(fields: [convertedClientId], references: [id])
+  campaign          Campaign?   @relation(fields: [campaignId], references: [id])
+
+  quotes Quote[]
+  tasks  Task[]
+
+  @@index([stage])
+  @@index([ownerEmployeeId])
+  @@map("leads")
+}
+
+model Quote {
+  id           String      @id @default(uuid())
+  leadId       String?     @map("lead_id")
+  clientId     String?     @map("client_id")
+  serviceId    String      @map("service_id")
+  amount       Decimal     @db.Decimal(12, 2)
+  currency     String      @default("USD") @db.Char(3)
+  exchangeRate Decimal     @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  amountBase   Decimal?    @map("amount_base") @db.Decimal(12, 2)
+  status       QuoteStatus @default(DRAFT)
+  validUntil   DateTime?   @map("valid_until") @db.Date
+  sentAt       DateTime?   @map("sent_at")
+  respondedAt  DateTime?   @map("responded_at")
+  notes        String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  lead    Lead?    @relation(fields: [leadId], references: [id])
+  client  Client?  @relation(fields: [clientId], references: [id])
+  service Service  @relation(fields: [serviceId], references: [id])
+  project Project?
+
+  @@map("quotes")
+}
+
+model Task {
+  id                   String     @id @default(uuid())
+  title                String
+  description          String?
+  dueAt                DateTime?  @map("due_at")
+  status               TaskStatus @default(TODO)
+  assignedToEmployeeId String?    @map("assigned_to_employee_id")
+  createdByEmployeeId  String?    @map("created_by_employee_id")
+  relatedProjectId     String?    @map("related_project_id")
+  relatedLeadId        String?    @map("related_lead_id")
+  relatedClientId      String?    @map("related_client_id")
+  completedAt          DateTime?  @map("completed_at")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
+
+  assignedToEmployee Employee? @relation("TaskAssignee", fields: [assignedToEmployeeId], references: [id])
+  createdByEmployee  Employee? @relation("TaskCreatedBy", fields: [createdByEmployeeId], references: [id])
+  relatedProject     Project?  @relation(fields: [relatedProjectId], references: [id])
+  relatedLead        Lead?     @relation(fields: [relatedLeadId], references: [id])
+  relatedClient      Client?   @relation(fields: [relatedClientId], references: [id])
+
+  @@index([status])
+  @@index([assignedToEmployeeId])
+  @@map("tasks")
+}
+
+// ─── Financial: Invoices, Payments, Expenses (Phase 3) ──────────────────
+//
+// Revenue recognition note: Session.amount/paymentStatus remains the fast
+// path for day-to-day, paid-on-the-spot sessions. Invoice/Payment is a
+// separate, additive layer for formally billing larger engagements
+// (e.g. a full album project billed in installments). The Financial
+// Dashboard sums both — this deliberately does not attempt to prevent an
+// operator from double-billing the same work through both paths; that's a
+// process discipline question, not a schema one, documented here so a
+// future phase doesn't "fix" it by surprise.
+
+model Invoice {
+  id                  String        @id @default(uuid())
+  invoiceNumber       String        @unique @map("invoice_number")
+  clientId            String        @map("client_id")
+  projectId           String?       @map("project_id")
+  total               Decimal       @db.Decimal(12, 2)
+  depositAmount       Decimal?      @map("deposit_amount") @db.Decimal(12, 2)
+  currency            String        @default("USD") @db.Char(3)
+  exchangeRate        Decimal       @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  totalBase           Decimal?      @map("total_base") @db.Decimal(12, 2)
+  status              PaymentStatus @default(UNPAID)
+  issueDate           DateTime      @default(now()) @map("issue_date") @db.Date
+  dueDate             DateTime?     @map("due_date") @db.Date
+  notes               String?
+  createdByEmployeeId String?       @map("created_by_employee_id")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  client            Client    @relation(fields: [clientId], references: [id])
+  createdByEmployee Employee? @relation("InvoiceCreatedBy", fields: [createdByEmployeeId], references: [id])
+
+  projects Project[]
+  sessions Session[]
+  payments Payment[]
+
+  @@index([clientId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model Payment {
+  id                   String        @id @default(uuid())
+  invoiceId            String        @map("invoice_id")
+  amount               Decimal       @db.Decimal(12, 2)
+  currency             String        @default("USD") @db.Char(3)
+  exchangeRate         Decimal       @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  amountBase           Decimal?      @map("amount_base") @db.Decimal(12, 2)
+  method               PaymentMethod @default(CASH)
+  paidAt               DateTime      @default(now()) @map("paid_at")
+  notes                String?
+  recordedByEmployeeId String?       @map("recorded_by_employee_id")
+  createdAt            DateTime      @default(now()) @map("created_at")
+
+  invoice            Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  recordedByEmployee Employee? @relation("PaymentRecordedBy", fields: [recordedByEmployeeId], references: [id])
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+model Expense {
+  id                  String          @id @default(uuid())
+  date                DateTime        @db.Date
+  vendor              String
+  description         String?
+  category            ExpenseCategory
+  amount              Decimal         @db.Decimal(12, 2)
+  currency            String          @default("USD") @db.Char(3)
+  exchangeRate        Decimal         @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  amountBase          Decimal?        @map("amount_base") @db.Decimal(12, 2)
+  recurring           Boolean         @default(false)
+  notes               String?
+  receiptUrl          String?         @map("receipt_url")
+  createdByEmployeeId String?         @map("created_by_employee_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  createdByEmployee Employee? @relation("ExpenseCreatedBy", fields: [createdByEmployeeId], references: [id])
+
+  @@index([date])
+  @@index([category])
+  @@map("expenses")
+}
+
+// ─── Compensation Engine (Phase 4) ──────────────────────────────────────
+//
+// Tier thresholds are DB rows, not hardcoded constants, per the business
+// requirement that Admin can change them without a code change. The actual
+// arithmetic lives in src/lib/services/compensation/calculate.ts as pure,
+// framework-free functions — see tests/unit/services/compensation for
+// boundary-value coverage of every tier edge.
+
+model ProductionTier {
+  id            String    @id @default(uuid())
+  // Inclusive range of delivered-song count this tier covers. songsTo = null means "and up" (26+).
+  songsFrom     Int       @map("songs_from")
+  songsTo       Int?      @map("songs_to")
+  amountPerSong Decimal   @map("amount_per_song") @db.Decimal(12, 2)
+  sortOrder     Int       @default(0) @map("sort_order")
+  active        Boolean   @default(true)
+  // Effective-dated: editing a tier never mutates its rate in place — it
+  // closes this row (effectiveTo = now) and inserts a new one starting now.
+  // Compensation for a delivered track always uses whichever row was
+  // effective on that track's deliveredAt, so a rate change never
+  // retroactively re-prices work that already happened.
+  effectiveFrom DateTime  @default(now()) @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([songsFrom, effectiveFrom])
+  @@map("production_tiers")
+}
+
+model RevenueBonusTier {
+  id            String    @id @default(uuid())
+  // Inclusive range of monthly studio revenue this tier covers. revenueTo = null means "and up" ($15k+).
+  revenueFrom   Decimal   @map("revenue_from") @db.Decimal(12, 2)
+  revenueTo     Decimal?  @map("revenue_to") @db.Decimal(12, 2)
+  bonusAmount   Decimal   @map("bonus_amount") @db.Decimal(12, 2)
+  sortOrder     Int       @default(0) @map("sort_order")
+  active        Boolean   @default(true)
+  // Same effective-dating as ProductionTier. Revenue bonus is evaluated once
+  // per month (not per-transaction), so "the rate" for a given month is
+  // whichever version was in effect at that month's end.
+  effectiveFrom DateTime  @default(now()) @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([revenueFrom, effectiveFrom])
+  @@map("revenue_bonus_tiers")
+}
+
+// Effective-dated history for Service.compensationValue (Mix & Master's
+// $/track, or a percent-revenue service's %). Service.compensationValue
+// itself is kept in sync as a denormalized "current value" for simple
+// display elsewhere in the app — the compensation engine reads this table.
+model ServiceCompensationRate {
+  id                String    @id @default(uuid())
+  serviceId         String    @map("service_id")
+  compensationValue Decimal   @map("compensation_value") @db.Decimal(12, 2)
+  effectiveFrom     DateTime  @default(now()) @map("effective_from")
+  effectiveTo       DateTime? @map("effective_to")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId, effectiveFrom])
+  @@map("service_compensation_rates")
+}
+
+// Effective-dated history for Employee.basePayWeekly / acquisitionCommissionPercent.
+// Those columns are kept in sync as a denormalized "current value" for
+// simple display elsewhere in the app — the compensation engine reads this table.
+model EmployeePayRate {
+  id                           String    @id @default(uuid())
+  employeeId                   String    @map("employee_id")
+  basePayWeekly                Decimal?  @map("base_pay_weekly") @db.Decimal(12, 2)
+  acquisitionCommissionPercent Decimal?  @map("acquisition_commission_percent") @db.Decimal(5, 2)
+  effectiveFrom                DateTime  @default(now()) @map("effective_from")
+  effectiveTo                  DateTime? @map("effective_to")
+  createdAt                    DateTime  @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, effectiveFrom])
+  @@map("employee_pay_rates")
+}
+
+model CompensationPeriod {
+  id          String                   @id @default(uuid())
+  employeeId  String                   @map("employee_id")
+  periodStart DateTime                 @map("period_start") @db.Date
+  periodEnd   DateTime                 @map("period_end") @db.Date
+  status      CompensationPeriodStatus @default(DRAFT)
+
+  // Breakdown — each line item the spec's example table calls out by name.
+  basePay               Decimal @default(0) @map("base_pay") @db.Decimal(12, 2)
+  productionVariable    Decimal @default(0) @map("production_variable") @db.Decimal(12, 2)
+  mixMasterVariable     Decimal @default(0) @map("mix_master_variable") @db.Decimal(12, 2)
+  timeBasedVariable     Decimal @default(0) @map("time_based_variable") @db.Decimal(12, 2)
+  acquisitionCommission Decimal @default(0) @map("acquisition_commission") @db.Decimal(12, 2)
+  revenueBonus          Decimal @default(0) @map("revenue_bonus") @db.Decimal(12, 2)
+  adjustments           Decimal @default(0) @map("adjustments") @db.Decimal(12, 2)
+  adjustmentNotes       String? @map("adjustment_notes")
+  total                 Decimal @default(0) @db.Decimal(12, 2)
+
+  // Snapshots of the inputs used to calculate this period, kept for audit —
+  // if tiers change later, historical periods still show what was true then.
+  monthlyRevenueSnapshot Decimal? @map("monthly_revenue_snapshot") @db.Decimal(12, 2)
+  deliveredSongsSnapshot Int?     @map("delivered_songs_snapshot")
+  mixMasterCountSnapshot Int?     @map("mix_master_count_snapshot")
+
+  approvedByEmployeeId String?   @map("approved_by_employee_id")
+  approvedAt           DateTime? @map("approved_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  employee           Employee  @relation("CompensationPeriodEmployee", fields: [employeeId], references: [id])
+  approvedByEmployee Employee? @relation("CompensationPeriodApprover", fields: [approvedByEmployeeId], references: [id])
+
+  @@unique([employeeId, periodStart])
+  @@map("compensation_periods")
+}
+
+// ─── Marketing, Audit Log, Notifications (Phase 5) ──────────────────────
+
+model Campaign {
+  id           String   @id @default(uuid())
+  name         String
+  // First-of-month date representing which month this spend belongs to.
+  month        DateTime @db.Date
+  spend        Decimal  @db.Decimal(12, 2)
+  currency     String   @default("USD") @db.Char(3)
+  exchangeRate Decimal  @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  spendBase    Decimal? @map("spend_base") @db.Decimal(12, 2)
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  leads Lead[]
+
+  @@index([month])
+  @@map("campaigns")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  employeeId String?  @map("employee_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  employee Employee? @relation("AuditLogEmployee", fields: [employeeId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  employeeId String           @map("employee_id")
+  type       NotificationType @default(OTHER)
+  message    String
+  link       String?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  employee Employee @relation("NotificationRecipient", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, read])
+  @@map("notifications")
+}
+
+// ─── Month-End Close (Phase 6) ───────────────────────────────────────────
+// Informational lock: records that Admin reviewed and closed a month.
+// Does not yet block further edits to that period's records — see CLAUDE.md.
+
+model MonthlyClose {
+  id                 String   @id @default(uuid())
+  month              DateTime @unique @db.Date
+  closedByEmployeeId String?  @map("closed_by_employee_id")
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  closedByEmployee Employee? @relation("MonthlyCloseClosedBy", fields: [closedByEmployeeId], references: [id])
+
+  @@map("monthly_closes")
+}
+
+// ─── Goals ────────────────────────────────────────────────────────────
+
+model Goal {
+  id        String   @id @default(uuid())
+  // MONTHLY_OPERATING | MONTHLY_STRETCH | LONG_TERM_MONTHLY | ANNUAL
+  code      String   @unique
+  label     String
+  amount    Decimal  @db.Decimal(12, 2)
+  currency  String   @default("USD") @db.Char(3)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("goals")
+}

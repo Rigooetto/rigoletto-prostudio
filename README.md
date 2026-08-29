@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rigoletto ProStudio
 
-## Getting Started
+Internal operating system for Rigoletto ProStudio (Tijuana, MX) — clients, projects, sessions, calendar, CRM pipeline, invoicing, expenses, a full compensation engine, marketing/CAC tracking, audit log, and historical analytics, with a role-branched dashboard for the Owner and the Studio Manager. All 6 build phases are implemented; see `CLAUDE.md` for the current architecture and `PHASE1_PLAN.md` for the original Phase 1 planning doc.
 
-First, run the development server:
+## Stack
+
+Next.js (App Router) + TypeScript + Tailwind + shadcn/ui (Base UI) · Prisma + PostgreSQL · Auth.js (Credentials) · Recharts · Vitest + Playwright · deployed on Render.
+
+## Local Development
 
 ```bash
+brew install postgresql@16 && brew services start postgresql@16
+createdb rigoletto_dev
+
+npm install
+cp .env.example .env   # fill in DATABASE_URL and AUTH_SECRET
+npx prisma migrate dev
+npx prisma generate    # always run after any schema/migration change
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Seeded logins (change these before going to production):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Admin: `admin@rigolettoprostudio.com` / `ChangeMe123!`
+- Studio Manager (Turi): `turi@rigolettoprostudio.com` / `ChangeMe123!`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Override the seeded passwords with `SEED_ADMIN_PASSWORD` / `SEED_TURI_PASSWORD` env vars before running `db:seed`.
 
-## Learn More
+**Notes on two things that fought us during setup** (both documented in detail in `CLAUDE.md`):
+- Local Postgres uses plain Homebrew Postgres, not `npx prisma dev` — that tool's embedded local server kept resurrecting dropped tables via WAL replay during migration work.
+- `npm run dev` runs `next dev --webpack`, not Turbopack — Turbopack's dev watcher crash-looped in this project.
 
-To learn more about Next.js, take a look at the following resources:
+## Testing
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run test       # Vitest — validation schemas, authorization logic, and the full compensation calculation engine
+npm run test:e2e   # Playwright — two golden-path specs across all 6 phases (needs the dev server)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deployment
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Render Web Service, see `render.yaml` / `Procfile`. `npm run build` runs `prisma migrate deploy` before `next build` (production builds are unaffected by the Turbopack dev issue above), so migrations apply automatically on deploy. Set `DATABASE_URL` and `AUTH_SECRET` in the Render dashboard.
