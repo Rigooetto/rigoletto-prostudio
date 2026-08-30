@@ -5,17 +5,19 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { rescheduleSession } from "@/lib/actions/sessions";
 import { parseDateParam } from "./params";
+import { addDays } from "@/lib/dates";
 import type { PlainCalendarSession } from "@/lib/serialize";
 
 const DRAG_THRESHOLD_PX = 5;
+const MS_PER_DAY = 86400000;
 
-// Every band of a day's column (header, spanning-row filler, pill content)
-// carries this attribute set to that day's date param, so a pointer over
-// ANY of them during a drag — not just the content band the pill started
-// in — resolves to the right drop target.
+// Every band of a day's column (header, spanning-row filler, pill/banner
+// content) carries this attribute set to that day's date param, so a
+// pointer over ANY of them during a drag resolves to the right drop target
+// regardless of which band it's currently over.
 export const DAY_CELL_ATTR = "data-day-cell";
 
-export interface MonthDragPreview {
+export interface DayDragPreview {
   sessionId: string;
   pixelDx: number;
   pixelDy: number;
@@ -26,33 +28,45 @@ interface DragOrigin {
   x: number;
   y: number;
   session: PlainCalendarSession;
-  originDateParam: string;
+  grabDateParam: string;
 }
 
 /**
- * Day-granularity drag-to-reschedule for Month view's single-day session
- * pills — dropping a pill on a different day cell moves the session to that
- * date, keeping its original time-of-day and duration. Deliberately simpler
- * than the time-grid's useDragReschedule (no vertical/minute component,
- * hit-tested via elementFromPoint instead of column-width math, since the
- * month grid wraps into multiple week rows rather than one continuous row
- * of day columns). Multi-day spanning banners aren't draggable here —
- * reshaping a multi-day span is a different, more involved gesture.
+ * Day-granularity drag-to-reschedule, used by both Month view's single-day
+ * pills and its multi-day banners, and by the day/week all-day row's
+ * multi-day banners. Deliberately simpler than the time-grid's
+ * useDragReschedule (no vertical/minute component, hit-tested via
+ * elementFromPoint instead of column-width math, since Month's grid wraps
+ * into multiple week rows rather than one continuous row of day columns).
+ *
+ * The move is computed as a RELATIVE day offset (drop day minus grab day),
+ * not "snap the session's start to whatever day you dropped on" — that
+ * distinction only matters for multi-day sessions: grabbing the middle day
+ * of a 3-day bar and dropping it one day over should shift the whole span
+ * by one day, not re-anchor its start to the drop day. `startDrag`'s
+ * `grabDateParam` is the specific calendar day under the pointer at grab
+ * time (for a single-day pill that's just the day it's rendered in; for a
+ * multi-day banner segment the caller resolves it from the sub-column the
+ * pointer landed on — see the bounding-rect math in month-view.tsx and
+ * all-day-row.tsx).
  */
-export function useMonthDragReschedule() {
+export function useDayDragReschedule() {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [preview, setPreview] = useState<MonthDragPreview | null>(null);
+  const [preview, setPreview] = useState<DayDragPreview | null>(null);
   const originRef = useRef<DragOrigin | null>(null);
   const draggingRef = useRef(false);
-  const previewRef = useRef<MonthDragPreview | null>(null);
+  const previewRef = useRef<DayDragPreview | null>(null);
   const suppressClickRef = useRef<string | null>(null);
 
   const commit = useCallback(
-    (session: PlainCalendarSession, targetDateParam: string) => {
+    (session: PlainCalendarSession, grabDateParam: string, targetDateParam: string) => {
+      const grabDate = parseDateParam(grabDateParam);
       const targetDate = parseDateParam(targetDateParam);
-      const newStart = new Date(session.startsAt);
-      newStart.setFullYear(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+      const dayOffset = Math.round((targetDate.getTime() - grabDate.getTime()) / MS_PER_DAY);
+      if (dayOffset === 0) return;
+
+      const newStart = addDays(session.startsAt, dayOffset);
       const duration = session.endsAt.getTime() - session.startsAt.getTime();
       const newEnd = new Date(newStart.getTime() + duration);
 
@@ -85,7 +99,7 @@ export function useMonthDragReschedule() {
       const cell = el?.closest(`[${DAY_CELL_ATTR}]`);
       const targetDateParam = cell?.getAttribute(DAY_CELL_ATTR) ?? null;
 
-      const next: MonthDragPreview = { sessionId: origin.session.id, pixelDx: dx, pixelDy: dy, targetDateParam };
+      const next: DayDragPreview = { sessionId: origin.session.id, pixelDx: dx, pixelDy: dy, targetDateParam };
       previewRef.current = next;
       setPreview(next);
     }
@@ -102,8 +116,8 @@ export function useMonthDragReschedule() {
       if (!origin) return;
       if (wasDragging) {
         suppressClickRef.current = origin.session.id;
-        if (finalPreview?.targetDateParam && finalPreview.targetDateParam !== origin.originDateParam) {
-          commit(origin.session, finalPreview.targetDateParam);
+        if (finalPreview?.targetDateParam) {
+          commit(origin.session, origin.grabDateParam, finalPreview.targetDateParam);
         }
       }
     }
@@ -116,9 +130,9 @@ export function useMonthDragReschedule() {
     };
   }, [commit]);
 
-  function startDrag(event: React.PointerEvent, session: PlainCalendarSession, originDateParam: string) {
+  function startDrag(event: React.PointerEvent, session: PlainCalendarSession, grabDateParam: string) {
     if (event.button !== 0) return;
-    originRef.current = { x: event.clientX, y: event.clientY, session, originDateParam };
+    originRef.current = { x: event.clientX, y: event.clientY, session, grabDateParam };
     draggingRef.current = false;
   }
 
@@ -133,4 +147,4 @@ export function useMonthDragReschedule() {
   return { preview, startDrag, consumeSuppressedClick };
 }
 
-export type UseMonthDragReschedule = ReturnType<typeof useMonthDragReschedule>;
+export type UseDayDragReschedule = ReturnType<typeof useDayDragReschedule>;

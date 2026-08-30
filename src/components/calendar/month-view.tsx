@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { sessionOverlapsDay, isMultiDaySession, monthGridRange } from "./layout";
 import { toDateParam } from "./params";
-import { useMonthDragReschedule } from "./use-month-drag-reschedule";
+import { useDayDragReschedule } from "./use-day-drag-reschedule";
 import { addDays } from "@/lib/dates";
 import { formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,7 @@ function spanColumns(session: PlainCalendarSession, week: Date[]) {
 
 export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainCalendarSession[] }) {
   const router = useRouter();
-  const drag = useMonthDragReschedule();
+  const drag = useDayDragReschedule();
   const { gridStart, gridEnd } = monthGridRange(anchor);
   const days: Date[] = [];
   for (let d = new Date(gridStart); d <= gridEnd; d = addDays(d, 1)) days.push(d);
@@ -109,20 +109,41 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
               {weekSpanning.map((session, bannerIndex) => {
                 const cols = spanColumns(session, week);
                 if (!cols) return null;
-                const covered = new Set(cols.indices);
                 const row = 2 + bannerIndex;
+                const isDragging = drag.preview?.sessionId === session.id;
+                const segmentDayCount = cols.endCol - cols.startCol;
+
+                // The grab point is resolved to a specific calendar day
+                // within this segment (not just "the session"), so dragging
+                // the middle of a 3-day bar shifts the whole span by the
+                // pointer's day delta instead of re-anchoring its start to
+                // wherever it's dropped — see useDayDragReschedule's docblock.
+                function handleBannerPointerDown(event: React.PointerEvent<HTMLAnchorElement>) {
+                  event.stopPropagation();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const dayWidth = rect.width / segmentDayCount;
+                  const offsetIndex = Math.min(
+                    segmentDayCount - 1,
+                    Math.max(0, Math.floor((event.clientX - rect.left) / dayWidth))
+                  );
+                  const grabDay = week[cols!.indices[0] + offsetIndex];
+                  drag.startDrag(event, session, toDateParam(grabDay));
+                }
+
                 return (
                   <Fragment key={session.id}>
-                    <Link
-                      href={`/sessions/${session.id}`}
-                      onClick={(event) => event.stopPropagation()}
-                      style={{ gridColumn: `${cols.startCol} / ${cols.endCol}`, gridRow: row }}
-                      className="block truncate rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary hover:bg-primary/25"
-                    >
-                      {session.clientDisplayName} · {session.serviceName}
-                    </Link>
+                    {/*
+                      A day-cell hit-test marker for EVERY day in this row —
+                      including the ones the banner itself covers — rendered
+                      BEFORE the banner so it paints underneath in the normal
+                      case. That's essential while dragging: the dragged
+                      banner gets pointer-events:none so elementFromPoint can
+                      "see through" it, but if the columns it started on had
+                      no marker at all (as when only non-covered days got
+                      one), dropping it back over its own original span
+                      would resolve to nothing and silently no-op the move.
+                    */}
                     {week.map((day, i) => {
-                      if (covered.has(i)) return null;
                       const inMonth = day.getMonth() === anchor.getMonth();
                       const dateParam = toDateParam(day);
                       const isDropTarget = drag.preview !== null && drag.preview.targetDateParam === dateParam;
@@ -144,6 +165,29 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
                         />
                       );
                     })}
+                    <Link
+                      href={`/sessions/${session.id}`}
+                      draggable={false}
+                      onPointerDown={handleBannerPointerDown}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (drag.consumeSuppressedClick(session.id)) event.preventDefault();
+                      }}
+                      style={{
+                        gridColumn: `${cols.startCol} / ${cols.endCol}`,
+                        gridRow: row,
+                        touchAction: "none",
+                        transform: isDragging
+                          ? `translate(${drag.preview!.pixelDx}px, ${drag.preview!.pixelDy}px)`
+                          : undefined,
+                      }}
+                      className={cn(
+                        "block truncate rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary hover:bg-primary/25",
+                        isDragging && "relative z-20 pointer-events-none shadow-lg"
+                      )}
+                    >
+                      {session.clientDisplayName} · {session.serviceName}
+                    </Link>
                   </Fragment>
                 );
               })}

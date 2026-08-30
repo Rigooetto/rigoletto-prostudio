@@ -32,6 +32,8 @@ const TEST_CLIENT_PREFIXES = [
   "Drag Test Client A ",
   "Drag Test Client B ",
   "MonthDrag Test Client ",
+  "MultiDayDrag Month Client ",
+  "MultiDayDrag Week Client ",
 ];
 
 const EXACT_TEST_LEAD_NAMES = ["Maria Lopez"];
