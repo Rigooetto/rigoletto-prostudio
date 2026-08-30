@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { HOURS, PX_PER_MINUTE, assignLanes } from "./layout";
 import { SessionBlock } from "./session-block";
 import { toDateParam } from "./params";
+import type { UseDragReschedule } from "./use-drag-reschedule";
 import { isSameDay } from "@/lib/dates";
 import type { PlainCalendarSession } from "@/lib/serialize";
 
@@ -11,10 +12,12 @@ export function DayColumn({
   dayDate,
   sessions,
   view,
+  drag,
 }: {
   dayDate: Date;
   sessions: PlainCalendarSession[];
   view: "day" | "week";
+  drag: UseDragReschedule;
 }) {
   const router = useRouter();
   const lanes = assignLanes(sessions.map((s) => ({ id: s.id, startsAt: s.startsAt, endsAt: s.endsAt })));
@@ -59,6 +62,7 @@ export function DayColumn({
             dayDate={dayDate}
             lane={lane?.lane ?? 0}
             laneCount={lane?.laneCount ?? 1}
+            drag={drag}
           />
         );
       })}

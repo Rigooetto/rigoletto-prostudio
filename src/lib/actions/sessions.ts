@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { requireEmployee } from "@/lib/auth/session";
-import { BookSessionSchema, SessionDetailsSchema, SessionPaymentSchema } from "@/lib/validation/session";
+import { BookSessionSchema, SessionDetailsSchema, SessionPaymentSchema, RescheduleSessionSchema } from "@/lib/validation/session";
 import { deriveSessionPaymentStatus, resolveBookingPayment } from "@/lib/payment-status";
 import { refreshDraftCompensationPeriods } from "@/lib/services/compensation/refresh";
 import { sendBookingConfirmationWhatsApp, type WhatsappSendResult } from "@/lib/services/whatsapp";
@@ -378,8 +378,51 @@ export async function updateSessionDetails(
 
   revalidatePath(`/sessions/${sessionId}`);
   revalidatePath("/sessions");
+  revalidatePath("/calendar");
   if (projectId) revalidatePath(`/projects/${projectId}`);
   revalidatePath("/projects");
+}
+
+/**
+ * Moves a session to a new time slot — drag/resize on the Calendar's
+ * time-grid. Follows the app's soft-warning convention used elsewhere (e.g.
+ * the project page's outstanding-balance banner): the move always happens,
+ * a same-room overlap only produces a warning to toast, never blocks it —
+ * there's no DB-level overlap constraint anywhere else in the app either.
+ */
+export async function rescheduleSession(
+  sessionId: string,
+  startsAt: Date,
+  endsAt: Date
+): Promise<{ warning?: string }> {
+  const session = await prisma.session.findUniqueOrThrow({
+    where: { id: sessionId },
+    include: { engineers: true },
+  });
+  await assertCanWriteSession(session);
+
+  const parsed = RescheduleSessionSchema.parse({ startsAt, endsAt });
+
+  const overlapping = await prisma.session.findFirst({
+    where: {
+      id: { not: sessionId },
+      studioRoom: session.studioRoom,
+      startsAt: { lt: parsed.endsAt },
+      endsAt: { gt: parsed.startsAt },
+    },
+    select: { client: { select: { displayName: true } } },
+  });
+
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { startsAt: parsed.startsAt, endsAt: parsed.endsAt },
+  });
+
+  revalidatePath("/calendar");
+  revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath("/sessions");
+
+  return overlapping ? { warning: `Overlaps with ${overlapping.client.displayName} in ${session.studioRoom}.` } : {};
 }
 
 /**

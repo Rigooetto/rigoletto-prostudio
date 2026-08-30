@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { HOURS, PX_PER_MINUTE, formatHourLabel, sessionOverlapsDay } from "./layout";
 import { DayColumn } from "./day-column";
+import { useDragReschedule } from "./use-drag-reschedule";
 import { isSameDay } from "@/lib/dates";
 import type { PlainCalendarSession } from "@/lib/serialize";
 
@@ -19,6 +20,8 @@ export function TimeGrid({
   view: "day" | "week";
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const columnsRef = useRef<HTMLDivElement>(null);
+  const drag = useDragReschedule(columnsRef, days.length);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -41,13 +44,18 @@ export function TimeGrid({
             </div>
           ))}
         </div>
-        <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+        <div
+          ref={columnsRef}
+          className="grid flex-1"
+          style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
+        >
           {days.map((day) => (
             <DayColumn
               key={day.toISOString()}
               dayDate={day}
               sessions={sessions.filter((s) => sessionOverlapsDay(s, day))}
               view={view}
+              drag={drag}
             />
           ))}
         </div>

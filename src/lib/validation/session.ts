@@ -78,6 +78,18 @@ export const SessionPaymentSchema = z.object({
   notes: emptyToUndefined,
 });
 
+// Powers drag-to-reschedule on the Calendar — just the two timestamps, no
+// other session fields are touched by a drag/resize gesture.
+export const RescheduleSessionSchema = z
+  .object({
+    startsAt: z.date(),
+    endsAt: z.date(),
+  })
+  .refine((data) => data.endsAt > data.startsAt, {
+    message: "End time must be after start time.",
+    path: ["endsAt"],
+  });
+
 // Same shape minus paymentStatus — that's derived from real payment records,
 // so an edit submission here must not touch it.
 export const SessionDetailsSchema = z

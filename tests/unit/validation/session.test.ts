@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BookSessionSchema } from "@/lib/validation/session";
+import { BookSessionSchema, RescheduleSessionSchema } from "@/lib/validation/session";
 
 describe("BookSessionSchema", () => {
   const base = {
@@ -97,6 +97,31 @@ describe("BookSessionSchema", () => {
       clientId: undefined,
       newClientName: "Walk-in Client",
       newClientEmail: "not-an-email",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("RescheduleSessionSchema", () => {
+  it("accepts a valid start/end pair", () => {
+    const result = RescheduleSessionSchema.safeParse({
+      startsAt: new Date("2026-09-01T10:00:00Z"),
+      endsAt: new Date("2026-09-01T12:00:00Z"),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects endsAt equal to startsAt", () => {
+    const same = new Date("2026-09-01T10:00:00Z");
+    const result = RescheduleSessionSchema.safeParse({ startsAt: same, endsAt: same });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0].path).toEqual(["endsAt"]);
+  });
+
+  it("rejects endsAt before startsAt", () => {
+    const result = RescheduleSessionSchema.safeParse({
+      startsAt: new Date("2026-09-01T12:00:00Z"),
+      endsAt: new Date("2026-09-01T10:00:00Z"),
     });
     expect(result.success).toBe(false);
   });

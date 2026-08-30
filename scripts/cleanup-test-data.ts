@@ -29,6 +29,8 @@ const TEST_CLIENT_PREFIXES = [
   "AutoProj Client ",
   "RateHistory Client ",
   "QuickBook Client ",
+  "Drag Test Client A ",
+  "Drag Test Client B ",
 ];
 
 const EXACT_TEST_LEAD_NAMES = ["Maria Lopez"];
