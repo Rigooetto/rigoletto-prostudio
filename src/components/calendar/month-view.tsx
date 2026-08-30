@@ -90,7 +90,7 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
                   >
                     <span className="font-medium">{day.getDate()}</span>
                     <Link
-                      href={`/sessions/new?date=${dateParam}`}
+                      href={`/sessions/new?date=${dateParam}&view=month`}
                       onClick={(event) => event.stopPropagation()}
                       className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                       aria-label="New session"

@@ -9,7 +9,15 @@ import type { PlainCalendarSession } from "@/lib/serialize";
 export const GUTTER_WIDTH = 56;
 const SCROLL_TO_HOUR = 7;
 
-export function TimeGrid({ days, sessions }: { days: Date[]; sessions: PlainCalendarSession[] }) {
+export function TimeGrid({
+  days,
+  sessions,
+  view,
+}: {
+  days: Date[];
+  sessions: PlainCalendarSession[];
+  view: "day" | "week";
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,7 +43,12 @@ export function TimeGrid({ days, sessions }: { days: Date[]; sessions: PlainCale
         </div>
         <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
           {days.map((day) => (
-            <DayColumn key={day.toISOString()} dayDate={day} sessions={sessions.filter((s) => sessionOverlapsDay(s, day))} />
+            <DayColumn
+              key={day.toISOString()}
+              dayDate={day}
+              sessions={sessions.filter((s) => sessionOverlapsDay(s, day))}
+              view={view}
+            />
           ))}
         </div>
       </div>

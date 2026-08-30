@@ -7,14 +7,24 @@ import { toDateParam } from "./params";
 import { isSameDay } from "@/lib/dates";
 import type { PlainCalendarSession } from "@/lib/serialize";
 
-export function DayColumn({ dayDate, sessions }: { dayDate: Date; sessions: PlainCalendarSession[] }) {
+export function DayColumn({
+  dayDate,
+  sessions,
+  view,
+}: {
+  dayDate: Date;
+  sessions: PlainCalendarSession[];
+  view: "day" | "week";
+}) {
   const router = useRouter();
   const lanes = assignLanes(sessions.map((s) => ({ id: s.id, startsAt: s.startsAt, endsAt: s.endsAt })));
   const laneById = new Map(lanes.map((l) => [l.id, l]));
 
   // Clicking empty grid space creates a session pre-filled at that time,
   // snapped to the nearest 15 minutes. Session blocks stop this from firing
-  // when the click actually lands on one of them (see SessionBlock).
+  // when the click actually lands on one of them (see SessionBlock). The
+  // `view` param round-trips back through the New Session page's cancel
+  // link so cancelling returns to this calendar view/date, not /sessions.
   function handleSlotClick(event: React.MouseEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const offsetY = event.clientY - rect.top;
@@ -23,7 +33,7 @@ export function DayColumn({ dayDate, sessions }: { dayDate: Date; sessions: Plai
     const minutes = Math.max(0, Math.min(24 * 60 - 15, snapped));
     const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
     const mm = String(minutes % 60).padStart(2, "0");
-    router.push(`/sessions/new?date=${toDateParam(dayDate)}&time=${hh}:${mm}`);
+    router.push(`/sessions/new?date=${toDateParam(dayDate)}&time=${hh}:${mm}&view=${view}`);
   }
 
   return (

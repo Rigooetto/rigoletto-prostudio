@@ -67,7 +67,10 @@ export function CalendarHeader({ view, anchor, title }: { view: CalendarView; an
             </Button>
           ))}
         </div>
-        <Button render={<Link href="/sessions/new" />} nativeButton={false}>
+        <Button
+          render={<Link href={`/sessions/new?date=${toDateParam(anchor)}&view=${view}`} />}
+          nativeButton={false}
+        >
           <Plus className="h-4 w-4" />
           New Session
         </Button>

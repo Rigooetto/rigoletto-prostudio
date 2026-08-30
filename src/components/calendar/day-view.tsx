@@ -12,7 +12,7 @@ export function DayView({ day, sessions }: { day: Date; sessions: PlainCalendarS
   return (
     <div className="space-y-2">
       <AllDayRow days={[day]} sessions={spanning} gutterPx={GUTTER_WIDTH} />
-      <TimeGrid days={[day]} sessions={timed} />
+      <TimeGrid days={[day]} sessions={timed} view="day" />
     </div>
   );
 }

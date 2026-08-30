@@ -16,6 +16,7 @@ export default async function NewSessionPage({ searchParams }: PageProps<"/sessi
   const projectIdParam = typeof params?.projectId === "string" ? params.projectId : undefined;
   const dateParam = typeof params?.date === "string" ? params.date : undefined;
   const timeParam = typeof params?.time === "string" ? params.time : undefined;
+  const viewParam = typeof params?.view === "string" ? params.view : undefined;
   // Clicked a day (or a specific time slot, from the Calendar's week/day
   // grid) — pre-fill a sensible default slot instead of making them retype
   // what they were just looking at. Computed via Date math (not string
@@ -55,7 +56,13 @@ export default async function NewSessionPage({ searchParams }: PageProps<"/sessi
         defaultStartsAt={defaultStartsAt}
         defaultEndsAt={defaultEndsAt}
         cancelHref={
-          projectIdParam ? `/projects/${projectIdParam}` : clientIdParam ? `/clients/${clientIdParam}` : "/sessions"
+          projectIdParam
+            ? `/projects/${projectIdParam}`
+            : clientIdParam
+              ? `/clients/${clientIdParam}`
+              : dateParam
+                ? `/calendar?view=${viewParam ?? "month"}&date=${dateParam}`
+                : "/sessions"
         }
       />
     </div>
