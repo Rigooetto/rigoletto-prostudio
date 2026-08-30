@@ -89,3 +89,78 @@ test("dragging a session block reschedules it, warning on a same-room conflict",
     await expect(blockA).toContainText("1:00 PM");
   });
 });
+
+test("dragging a session pill in Month view moves it to the dropped day", async ({ page }) => {
+  const clientName = `MonthDrag Test Client ${Date.now()}`;
+
+  const originDay = new Date();
+  originDay.setDate(originDay.getDate() + 12);
+  const targetDay = new Date(originDay);
+  targetDay.setDate(targetDay.getDate() + 2);
+
+  const dateParam = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const originDateParam = dateParam(originDay);
+  const targetDateParam = dateParam(targetDay);
+
+  await test.step("log in as Admin", async () => {
+    await page.goto("/login");
+    await page.fill('input[name="email"]', ADMIN_EMAIL);
+    await page.fill('input[name="password"]', ADMIN_PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL("**/dashboard");
+  });
+
+  await test.step("book a session on the origin day", async () => {
+    await page.goto("/sessions/new");
+    await page.getByRole("button", { name: "+ New client", exact: true }).click();
+    await page.fill('input[name="newClientName"]', clientName);
+    await page.click("#serviceId");
+    await page.getByRole("option").first().click();
+
+    const start = new Date(originDay);
+    start.setHours(10, 0, 0, 0);
+    const end = new Date(originDay);
+    end.setHours(11, 0, 0, 0);
+    await page.fill('input[name="startsAt"]', toDatetimeLocalValue(start));
+    await page.fill('input[name="endsAt"]', toDatetimeLocalValue(end));
+    await page.fill('input[name="amount"]', "300");
+    await page.click('button[type="submit"]:has-text("Book Session")');
+    await page.waitForURL(/\/sessions\/[a-f0-9-]+$/);
+  });
+
+  await test.step("drag the pill from the origin day cell onto the target day cell", async () => {
+    await page.goto(`/calendar?view=month&date=${originDateParam}`);
+    const pill = page.locator(`[data-day-content="${originDateParam}"] a`, { hasText: clientName });
+    await expect(pill).toBeVisible();
+    const pillBox = await pill.boundingBox();
+    const targetBox = await page.locator(`[data-day-cell="${targetDateParam}"]`).first().boundingBox();
+    if (!pillBox || !targetBox) throw new Error("pill or target day cell not found");
+
+    const startX = pillBox.x + pillBox.width / 2;
+    const startY = pillBox.y + pillBox.height / 2;
+    const endX = targetBox.x + targetBox.width / 2;
+    const endY = targetBox.y + targetBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    for (let i = 1; i <= 5; i++) {
+      await page.mouse.move(startX + (endX - startX) * (i / 5), startY + (endY - startY) * (i / 5), { steps: 3 });
+    }
+    await page.mouse.up();
+  });
+
+  await test.step("the session now shows under the target day, not the origin day", async () => {
+    await expect(page.locator(`[data-day-content="${targetDateParam}"] a`, { hasText: clientName })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.locator(`[data-day-content="${originDateParam}"] a`, { hasText: clientName })
+    ).not.toBeVisible();
+  });
+
+  await test.step("the move persisted past reload", async () => {
+    await page.reload();
+    await expect(page.locator(`[data-day-content="${targetDateParam}"] a`, { hasText: clientName })).toBeVisible();
+  });
+});

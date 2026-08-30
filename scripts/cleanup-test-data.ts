@@ -31,6 +31,7 @@ const TEST_CLIENT_PREFIXES = [
   "QuickBook Client ",
   "Drag Test Client A ",
   "Drag Test Client B ",
+  "MonthDrag Test Client ",
 ];
 
 const EXACT_TEST_LEAD_NAMES = ["Maria Lopez"];

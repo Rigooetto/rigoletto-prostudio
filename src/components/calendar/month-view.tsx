@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { sessionOverlapsDay, isMultiDaySession, monthGridRange } from "./layout";
 import { toDateParam } from "./params";
+import { useMonthDragReschedule } from "./use-month-drag-reschedule";
 import { addDays } from "@/lib/dates";
 import { formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ function spanColumns(session: PlainCalendarSession, week: Date[]) {
 
 export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainCalendarSession[] }) {
   const router = useRouter();
+  const drag = useMonthDragReschedule();
   const { gridStart, gridEnd } = monthGridRange(anchor);
   const days: Date[] = [];
   for (let d = new Date(gridStart); d <= gridEnd; d = addDays(d, 1)) days.push(d);
@@ -74,18 +76,21 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
               {week.map((day, i) => {
                 const inMonth = day.getMonth() === anchor.getMonth();
                 const dateParam = toDateParam(day);
+                const isDropTarget = drag.preview !== null && drag.preview.targetDateParam === dateParam;
                 return (
                   <div
                     key={`hdr-${day.toISOString()}`}
                     role="button"
                     tabIndex={0}
+                    data-day-cell={dateParam}
                     onClick={() => goToDay(dateParam)}
                     onKeyDown={(event) => event.key === "Enter" && goToDay(dateParam)}
                     style={{ gridColumn: i + 1, gridRow: 1 }}
                     className={cn(
                       "flex cursor-pointer items-center justify-between px-2 pt-1.5 pb-0.5 text-xs transition-colors hover:bg-accent/50",
                       i < 6 && "border-r border-border",
-                      inMonth ? "bg-card" : "bg-background/50 text-muted-foreground"
+                      inMonth ? "bg-card" : "bg-background/50 text-muted-foreground",
+                      isDropTarget && "bg-accent"
                     )}
                   >
                     <span className="font-medium">{day.getDate()}</span>
@@ -120,18 +125,21 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
                       if (covered.has(i)) return null;
                       const inMonth = day.getMonth() === anchor.getMonth();
                       const dateParam = toDateParam(day);
+                      const isDropTarget = drag.preview !== null && drag.preview.targetDateParam === dateParam;
                       return (
                         <div
                           key={i}
                           role="button"
                           tabIndex={0}
+                          data-day-cell={dateParam}
                           onClick={() => goToDay(dateParam)}
                           onKeyDown={(event) => event.key === "Enter" && goToDay(dateParam)}
                           style={{ gridColumn: i + 1, gridRow: row }}
                           className={cn(
                             "cursor-pointer px-2 transition-colors hover:bg-accent/50",
                             i < 6 && "border-r border-border",
-                            inMonth ? "bg-card" : "bg-background/50"
+                            inMonth ? "bg-card" : "bg-background/50",
+                            isDropTarget && "bg-accent"
                           )}
                         />
                       );
@@ -144,30 +152,54 @@ export function MonthView({ anchor, sessions }: { anchor: Date; sessions: PlainC
                 const daySessions = timed.filter((s) => sessionOverlapsDay(s, day));
                 const inMonth = day.getMonth() === anchor.getMonth();
                 const dateParam = toDateParam(day);
+                const isDropTarget = drag.preview !== null && drag.preview.targetDateParam === dateParam;
                 return (
                   <div
                     key={`content-${day.toISOString()}`}
                     role="button"
                     tabIndex={0}
+                    data-day-cell={dateParam}
+                    data-day-content={dateParam}
                     onClick={() => goToDay(dateParam)}
                     onKeyDown={(event) => event.key === "Enter" && goToDay(dateParam)}
                     style={{ gridColumn: i + 1, gridRow: contentRow }}
                     className={cn(
                       "min-h-16 cursor-pointer space-y-1 px-2 pb-2 text-xs transition-colors hover:bg-accent/50",
                       i < 6 && "border-r border-border",
-                      inMonth ? "bg-card" : "bg-background/50 text-muted-foreground"
+                      inMonth ? "bg-card" : "bg-background/50 text-muted-foreground",
+                      isDropTarget && "bg-accent"
                     )}
                   >
-                    {daySessions.slice(0, 3).map((s) => (
-                      <Link
-                        key={s.id}
-                        href={`/sessions/${s.id}`}
-                        onClick={(event) => event.stopPropagation()}
-                        className="block truncate rounded bg-primary/15 px-1.5 py-0.5 text-primary hover:bg-primary/25"
-                      >
-                        {formatTime(s.startsAt)} {s.clientDisplayName}
-                      </Link>
-                    ))}
+                    {daySessions.slice(0, 3).map((s) => {
+                      const isDragging = drag.preview?.sessionId === s.id;
+                      return (
+                        <Link
+                          key={s.id}
+                          href={`/sessions/${s.id}`}
+                          draggable={false}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            drag.startDrag(event, s, dateParam);
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (drag.consumeSuppressedClick(s.id)) event.preventDefault();
+                          }}
+                          className={cn(
+                            "block truncate rounded bg-primary/15 px-1.5 py-0.5 text-primary hover:bg-primary/25",
+                            isDragging && "relative z-20 pointer-events-none shadow-lg"
+                          )}
+                          style={{
+                            touchAction: "none",
+                            transform: isDragging
+                              ? `translate(${drag.preview!.pixelDx}px, ${drag.preview!.pixelDy}px)`
+                              : undefined,
+                          }}
+                        >
+                          {formatTime(s.startsAt)} {s.clientDisplayName}
+                        </Link>
+                      );
+                    })}
                     {daySessions.length > 3 && (
                       <Link
                         href={`/calendar?view=day&date=${dateParam}`}
